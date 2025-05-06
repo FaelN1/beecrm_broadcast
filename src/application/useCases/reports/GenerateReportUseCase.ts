@@ -1,0 +1,172 @@
+import { PrismaClient } from '@prisma/client';
+import { GenerateReportDTO, ReportResponseDTO } from '../../dtos/ReportDTO';
+import { PDFReportGenerator } from '../../../infrastructure/services/PDFReportGenerator';
+import { CSVReportGenerator } from '../../../infrastructure/services/CSVReportGenerator';
+import { S3StorageProvider } from '../../../infrastructure/storage/S3StorageProvider';
+import { BullQueueProvider } from '../../../infrastructure/queue/BullQueueProvider';
+import { EmailService } from '../../../infrastructure/services/EmailService';
+
+export class GenerateReportUseCase {
+  private prisma: PrismaClient;
+  private storageProvider: S3StorageProvider;
+  private pdfReportGenerator: PDFReportGenerator;
+  private csvReportGenerator: CSVReportGenerator;
+  private emailService: EmailService;
+  private queueProvider?: BullQueueProvider;
+
+  constructor(
+    prisma: PrismaClient,
+    queueProvider?: BullQueueProvider
+  ) {
+    this.prisma = prisma;
+    this.storageProvider = new S3StorageProvider();
+    this.pdfReportGenerator = new PDFReportGenerator(prisma);
+    this.csvReportGenerator = new CSVReportGenerator(prisma);
+    this.emailService = new EmailService();
+    this.queueProvider = queueProvider;
+  }
+
+  async execute(data: GenerateReportDTO): Promise<ReportResponseDTO> {
+    console.log(`[GenerateReportUseCase] Iniciando geração de relatório: ${JSON.stringify(data)}`);
+    
+    // Verificar se o broadcast existe
+    const broadcast = await this.prisma.broadcast.findUnique({
+      where: { id: data.broadcastId }
+    });
+
+    if (!broadcast) {
+      console.log(`[GenerateReportUseCase] Campanha não encontrada: ${data.broadcastId}`);
+      throw new Error('Campanha não encontrada');
+    }
+
+    // Se tiver email no DTO, atualizar o broadcast
+    if (data.email && data.email !== broadcast.email) {
+      console.log(`[GenerateReportUseCase] Atualizando email da campanha: ${data.email}`);
+      await this.prisma.broadcast.update({
+        where: { id: data.broadcastId },
+        data: { email: data.email }
+      });
+    }
+
+    // Verificar se já existe um relatório em processamento
+    const existingReport = await this.prisma.report.findFirst({
+      where: {
+        broadcastId: data.broadcastId,
+        type: `broadcast_${data.type}`,
+        format: data.format,
+        status: 'processing'
+      }
+    });
+
+    // Se encontrou um relatório existente, usamos ele
+    const report = existingReport || await this.prisma.report.create({
+      data: {
+        type: `broadcast_${data.type}`,
+        format: data.format,
+        status: 'processing',
+        broadcastId: data.broadcastId
+      }
+    });
+
+    console.log(`[GenerateReportUseCase] Relatório registrado: ${report.id}, iniciando processamento`);
+
+    // Para relatórios pequenos, podemos gerar diretamente
+    // Para relatórios grandes, seria melhor colocar na fila
+    let reportUrl = '';
+    let key = '';
+
+    try {
+      if (data.format === 'pdf') {
+        console.log(`[GenerateReportUseCase] Gerando relatório PDF: ${data.type}`);
+        // Gerar relatório PDF com gráficos
+        if (data.type === 'summary') {
+          const result = await this.pdfReportGenerator.generateBroadcastReport(data.broadcastId);
+          reportUrl = result.reportUrl;
+          key = result.key;
+        } else {
+          throw new Error(`Tipo de relatório '${data.type}' não suportado para formato PDF`);
+        }
+      } else if (data.format === 'csv') {
+        console.log(`[GenerateReportUseCase] Gerando relatório CSV: ${data.type}`);
+        // Gerar relatório CSV
+        if (data.type === 'contacts') {
+          const result = await this.csvReportGenerator.generateBroadcastContactsReport(data.broadcastId);
+          reportUrl = result.reportUrl;
+          key = result.key;
+        } else {
+          throw new Error(`Tipo de relatório '${data.type}' não suportado para formato CSV`);
+        }
+      } else {
+        throw new Error(`Formato de relatório '${data.format}' não suportado`);
+      }
+
+      console.log(`[GenerateReportUseCase] Relatório gerado com sucesso: ${report.id}, key=${key}`);
+
+      // Atualizar o relatório com o caminho do arquivo
+      const updatedReport = await this.prisma.report.update({
+        where: { id: report.id },
+        data: {
+          filePath: key,
+          status: 'completed'
+        }
+      });
+
+      console.log(`[GenerateReportUseCase] Status do relatório atualizado para 'completed': ${report.id}`);
+
+      // Gerar URL temporária para download
+      const downloadUrl = this.storageProvider.getSignedUrl(key, 86400); // 1 hora de validade
+
+      // Verificar se deve enviar o relatório por email
+      const emailToSend = data.email || broadcast.email;
+      let emailSent = false;
+      
+      if (emailToSend) {
+        console.log(`[GenerateReportUseCase] Enviando relatório por email para: ${emailToSend}`);
+        
+        try {
+          emailSent = await this.emailService.sendReportEmail(
+            emailToSend,
+            `Relatório da Campanha: ${broadcast.name}`,
+            downloadUrl,
+            `${data.type}`,
+            broadcast.name
+          );
+          
+          if (emailSent) {
+            console.log(`[GenerateReportUseCase] Email enviado com sucesso para: ${emailToSend}`);
+          } else {
+            console.error(`[GenerateReportUseCase] Falha ao enviar email para: ${emailToSend}`);
+          }
+        } catch (emailError: any) {
+          console.error(`[GenerateReportUseCase] Erro ao enviar email: ${emailError.message}`);
+          // Não falhar o processo principal se o email falhar
+        }
+      }
+
+      return {
+        id: updatedReport.id,
+        url: downloadUrl,
+        key: key,
+        type: updatedReport.type,
+        format: updatedReport.format,
+        status: updatedReport.status,
+        createdAt: updatedReport.createdAt,
+        emailSent: emailSent
+      };
+
+    } catch (error: any) {
+      // Em caso de erro, atualizar o status do relatório
+      console.error(`[GenerateReportUseCase] Erro ao gerar relatório: ${error.message}`, error);
+      
+      await this.prisma.report.update({
+        where: { id: report.id },
+        data: {
+          status: 'failed'
+        }
+      });
+      
+      console.log(`[GenerateReportUseCase] Status do relatório atualizado para 'failed': ${report.id}`);
+      throw error;
+    }
+  }
+}

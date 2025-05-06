@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Broadcast {
+  id          String              @id @default(uuid())
+  name        String
+  description String?
+  status      String
+  channel     String?             // Identificação do canal do cliente (ex: 1-beecrm.io)
+  email       String?             // Email para envio automático de relatórios
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  // messages    Message[]
+  contacts    BroadcastContact[]
+  templates   Template[]          // Nova relação com Template
+}
+
+model Contact {
+  id            String              @id @default(uuid())
+  name          String
+  phone         String              @unique
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  broadcasts    BroadcastContact[]
+  // messages      Message[]
+}
+
+// Tabela de relacionamento entre Broadcast e Contact
+model BroadcastContact {
+  broadcast     Broadcast   @relation(fields: [broadcastId], references: [id])
+  broadcastId   String
+  contact       Contact     @relation(fields: [contactId], references: [id])
+  contactId     String
+  displayName   String?     // Nome específico para o contato nesta campanha
+  status        String      @default("pending") // pending, sent, failed
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@id([broadcastId, contactId])
+}
+
+// model Message {
+//   id          String    @id @default(uuid())
+//   content     String
+//   status      String
+//   recipient   String
+//   metadata    Json?
+//   broadcastId String
+//   broadcast   Broadcast @relation(fields: [broadcastId], references: [id])
+//   contactId   String?
+//   contact     Contact?  @relation(fields: [contactId], references: [id])
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+// }
+
+model Report {
+  id          String   @id @default(uuid())
+  type        String
+  format      String
+  filePath    String?
+  status      String
+  broadcastId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Novo modelo para Templates de mensagens
+model Template {
+  id          String    @id @default(uuid())
+  name        String
+  content     String    // Conteúdo do template com variáveis como {{name}}
+  variables   Json?     // Metadados das variáveis: tipos, descrições, etc.
+  broadcastId String
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
