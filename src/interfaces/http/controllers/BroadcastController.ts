@@ -13,6 +13,7 @@ import { RestartBroadcastUseCase } from '../../../application/useCases/broadcast
 import { DeleteBroadcastUseCase } from '../../../application/useCases/broadcasts/DeleteBroadcastUseCase';
 import { BullQueueProvider } from '../../../infrastructure/queue/BullQueueProvider';
 import { queueProvider } from '../routes/messageRoutes';
+import { GetBroadcastsByChannelUseCase } from '../../../application/useCases/broadcasts/GetBroadcastsByChannelUseCase';
 
 export class BroadcastController {
   // Utilizamos o queueProvider compartilhado do aplicativo
@@ -24,7 +25,7 @@ export class BroadcastController {
 
   async create(req: Request, res: Response): Promise<Response> {
     try {
-      const { name, description, contacts, channel, template } = req.body;
+      const { name, description, contacts, channel, template, startDate, timezone } = req.body; // Adicionar startDate e timezone
       
       if (!name || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
         return res.status(400).json({ 
@@ -59,7 +60,9 @@ export class BroadcastController {
         description,
         channel,
         contacts,
-        template
+        template,
+        startDate, // Repassar startDate
+        timezone   // Repassar timezone
       });
 
       return res.status(201).json(broadcast);
@@ -134,16 +137,16 @@ export class BroadcastController {
       // Validação básica do formato das variáveis
       if (variables) {
         for (const [key, meta] of Object.entries(variables)) {
-          if (typeof meta !== 'object' || !meta.type) {
+          if (meta === null || typeof meta !== 'object' || !('type' in meta) || !(meta as any).type) {
             return res.status(400).json({
               error: `Formato inválido para a variável ${key}. Cada variável deve ter pelo menos o campo 'type'`
             });
           }
           
           const validTypes = ['text', 'number', 'date', 'image', 'file', 'url', 'boolean'];
-          if (!validTypes.includes(meta.type)) {
+          if (!validTypes.includes((meta as any).type)) {
             return res.status(400).json({
-              error: `Tipo '${meta.type}' inválido para a variável ${key}. Tipos válidos: ${validTypes.join(', ')}`
+              error: `Tipo '${(meta as any).type}' inválido para a variável ${key}. Tipos válidos: ${validTypes.join(', ')}`
             });
           }
         }
@@ -378,6 +381,34 @@ export class BroadcastController {
       
       return res.status(500).json({
         error: 'Erro ao excluir campanha'
+      });
+    }
+  }
+
+  // Novo método para buscar campanhas por canal
+  async getBroadcastsByChannel(req: Request, res: Response): Promise<Response> {
+    try {
+      const { channel } = req.query;
+
+      if (!channel || typeof channel !== 'string') {
+        return res.status(400).json({
+          error: 'O parâmetro \'channel\' é obrigatório na query string.'
+        });
+      }
+
+      const broadcastRepository = new BroadcastRepository(prisma);
+      const getBroadcastsByChannelUseCase = new GetBroadcastsByChannelUseCase(broadcastRepository);
+
+      const broadcasts = await getBroadcastsByChannelUseCase.execute(channel);
+
+      return res.status(200).json(broadcasts);
+    } catch (error: any) {
+      console.error('Erro ao buscar campanhas por canal:', error);
+      if (error.message.includes('obrigatório para a busca')) {
+        return res.status(400).json({ error: error.message });
+      }
+      return res.status(500).json({
+        error: 'Erro ao buscar campanhas por canal'
       });
     }
   }

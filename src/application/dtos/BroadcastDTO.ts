@@ -7,6 +7,8 @@ export interface CreateBroadcastDTO {
   status?: BroadcastStatus;
   channel?: string;
   template?: TemplateDTO; // Template opcional na criação
+  startDate?: string; // ISO 8601 date string
+  timezone?: string;  // IANA Time Zone
 }
 
 export interface ContactDTO {
@@ -19,6 +21,7 @@ export interface ContactDTO {
 export interface TemplateDTO {
   name: string;
   content: string;
+  variables?: any;
 }
 
 export interface BroadcastResponseDTO {
@@ -35,6 +38,8 @@ export interface BroadcastResponseDTO {
   };
   createdAt: Date;
   updatedAt: Date;
+  startDate?: Date; // Adicionado para resposta
+  timezone?: string; // Adicionado para resposta
 }
 
 export interface AddContactsToBroadcastDTO {

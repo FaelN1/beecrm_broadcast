@@ -9,7 +9,8 @@ import cors from 'cors';
 import { Redis } from 'ioredis';
 import { BullQueueProvider } from './infrastructure/queue/BullQueueProvider';
 import { QueueManager } from './infrastructure/queue/QueueManager';
-import { queueProvider } from './interfaces/http/routes/messageRoutes';
+import { scheduledCampaignProcessor } from './infrastructure/queue/jobs/ScheduledCampaignJob'; // Importa o novo processador
+import { NotificationService } from './infrastructure/services/NotificationService';
 
 // Configurações
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,9 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
+
+// Inicializa o NotificationService com a instância do Socket.IO
+export const notificationService = new NotificationService(io);
 
 // Middlewares
 app.use(cors());
@@ -42,6 +46,9 @@ redisClient.on('error', (error) => {
 // Inicialização das filas
 let queueManager: QueueManager | null = null;
 
+// Inicializar o provedor de fila (BullQueueProvider)
+export const queueProvider = new BullQueueProvider(); // Exportando a instância
+
 try {
   // Usamos a mesma instância de queueProvider compartilhada
   queueManager = new QueueManager(queueProvider);
@@ -51,6 +58,19 @@ try {
 } catch (error) {
   console.error('Erro ao configurar sistema de filas:', error);
 }
+
+// Configurar workers para as filas
+queueProvider.createWorker('scheduled-campaign-check', scheduledCampaignProcessor); // Adiciona worker para o novo job
+
+// Adicionar job repetível para verificar campanhas agendadas (ex: a cada minuto)
+queueProvider.addJob(
+  'scheduled-campaign-check', 
+  { type: 'recurring' }, 
+  {
+    repeat: { cron: '* * * * *' }, // A cada minuto
+    jobId: 'checkScheduledCampaigns' // ID fixo para evitar duplicação
+  }
+);
 
 // Rotas
 app.use('/api', router);
@@ -67,6 +87,12 @@ io.on('connection', (socket) => {
   socket.on('join-broadcast', (broadcastId) => {
     socket.join(`broadcast:${broadcastId}`);
     console.log(`Cliente ${socket.id} entrou na sala broadcast:${broadcastId}`);
+  });
+
+  // Sala para notificações de admin/gerais
+  socket.on('join-admin-notifications', () => {
+    socket.join('admin-notifications');
+    console.log(`Cliente ${socket.id} entrou na sala admin-notifications`);
   });
   
   socket.on('disconnect', () => {

@@ -1,95 +1,86 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Broadcast as PrismaBroadcast } from '@prisma/client';
 import { Broadcast } from '../../../domain/entities/Broadcast';
 import { IBroadcastRepository } from '../../../domain/repositories/IBroadcastRepository';
 import { BroadcastStatus } from '../../../domain/valueObjects/BroadcastStatus';
 import { ContactStatus } from '../../../domain/valueObjects/ContactStatus';
+import { prisma } from '../prisma/PrismaRepository'; // Garante que estamos usando a instância global do Prisma
 
 export class BroadcastRepository implements IBroadcastRepository {
-  constructor(private prisma: PrismaClient) {}
+  private prisma: PrismaClient;
+
+  constructor(prismaClient: PrismaClient = prisma) {
+    this.prisma = prismaClient;
+  }
 
   async create(broadcast: Broadcast): Promise<Broadcast> {
-    const data = await this.prisma.broadcast.create({
+    const createdBroadcast = await this.prisma.broadcast.create({
       data: {
         name: broadcast.name,
         description: broadcast.description,
         status: broadcast.status,
-        channel: broadcast.channel
-      }
+        channel: broadcast.channel,
+        // templateId: broadcast.templateId, // Removido, pois o template é uma relação
+        createdAt: broadcast.createdAt,
+        updatedAt: broadcast.updatedAt,
+        deletedAt: broadcast.deletedAt,
+        startDate: broadcast.startDate,
+        timezone: broadcast.timezone,
+      },
     });
-
-    return {
-      id: data.id,
-      name: data.name,
-      description: data.description || undefined,
-      status: data.status as BroadcastStatus,
-      channel: data.channel || undefined,
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt
-    };
+    return this.mapToDomain(createdBroadcast);
   }
 
   async findById(id: string): Promise<Broadcast | null> {
-    const data = await this.prisma.broadcast.findUnique({
-      where: { id }
+    const broadcast = await this.prisma.broadcast.findUnique({
+      where: { id },
+      include: { templates: true } // Inclui templates para ter acesso ao ID do template mais recente se necessário
     });
+    return broadcast ? this.mapToDomain(broadcast) : null;
+  }
 
-    if (!data) return null;
-
-    return {
-      id: data.id,
-      name: data.name,
-      description: data.description ?? undefined,
-      status: data.status as BroadcastStatus,
-      channel: data.channel ?? undefined,
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt
-    };
+  async findMany(args: any): Promise<Broadcast[]> {
+    const broadcasts = await this.prisma.broadcast.findMany({
+        ...args,
+        include: { templates: true }
+    });
+    return broadcasts.map(this.mapToDomain);
   }
 
   async update(broadcast: Broadcast): Promise<Broadcast> {
-    const data = await this.prisma.broadcast.update({
+    if (!broadcast.id) {
+      throw new Error('Broadcast ID is required for update');
+    }
+    const updatedBroadcast = await this.prisma.broadcast.update({
       where: { id: broadcast.id },
       data: {
         name: broadcast.name,
         description: broadcast.description,
         status: broadcast.status,
-        channel: broadcast.channel
-      }
+        channel: broadcast.channel,
+        // templateId: broadcast.templateId, // Removido
+        updatedAt: new Date(), 
+        deletedAt: broadcast.deletedAt,
+        startDate: broadcast.startDate,
+        timezone: broadcast.timezone,
+      },
+      include: { templates: true }
     });
-
-    return {
-      id: data.id,
-      name: data.name,
-      description: data.description ?? undefined,
-      status: data.status as BroadcastStatus,
-      channel: data.channel ?? undefined,
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt
-    };
+    return this.mapToDomain(updatedBroadcast);
   }
 
   async delete(id: string): Promise<void> {
-    await this.prisma.broadcast.delete({
-      where: { id }
+    await this.prisma.broadcast.update({
+      where: { id },
+      data: { deletedAt: new Date() },
     });
   }
 
   async findAll(): Promise<Broadcast[]> {
-    const broadcasts = await this.prisma.broadcast.findMany();
-    
-    return broadcasts.map(data => ({
-      id: data.id,
-      name: data.name,
-      description: data.description ?? undefined,
-      status: data.status as BroadcastStatus,
-      channel: data.channel ?? undefined,
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt
-    }));
+    const broadcasts = await this.prisma.broadcast.findMany({ include: { templates: true } });
+    return broadcasts.map(this.mapToDomain);
   }
 
   async getContactsByStatus(broadcastId: string): Promise<Record<string, any[]>> {
-    // Verificar se o broadcast existe
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id: broadcastId }
     });
@@ -98,7 +89,6 @@ export class BroadcastRepository implements IBroadcastRepository {
       throw new Error('Campanha não encontrada');
     }
 
-    // Buscar todos os contatos associados ao broadcast
     const broadcastContacts = await this.prisma.broadcastContact.findMany({
       where: { broadcastId },
       include: {
@@ -106,14 +96,10 @@ export class BroadcastRepository implements IBroadcastRepository {
       }
     });
 
-    // Organizar contatos por status
-    const contactsByStatus: Record<string, any[]> = {
-      [ContactStatus.PENDING]: [],
-      [ContactStatus.SENT]: [],
-      [ContactStatus.DELIVERED]: [],
-      [ContactStatus.READ]: [],
-      [ContactStatus.FAILED]: []
-    };
+    const contactsByStatus: Record<string, any[]> = {};
+    Object.values(ContactStatus).forEach(status => {
+      contactsByStatus[status] = [];
+    });
 
     broadcastContacts.forEach(bc => {
       const contactData = {
@@ -125,16 +111,34 @@ export class BroadcastRepository implements IBroadcastRepository {
         createdAt: bc.createdAt,
         updatedAt: bc.updatedAt
       };
-
-      // Adicionar o contato ao array correspondente ao seu status
       if (contactsByStatus[bc.status]) {
         contactsByStatus[bc.status].push(contactData);
       } else {
-        // Se o status não for um dos predefinidos, colocamos em 'pending'
-        contactsByStatus[ContactStatus.PENDING].push(contactData);
+        contactsByStatus[ContactStatus.PENDING].push(contactData); 
       }
     });
 
     return contactsByStatus;
+  }
+
+  private mapToDomain(prismaBroadcast: PrismaBroadcast & { templates?: any[] }): Broadcast {
+    // Ordena os templates por data de criação para pegar o mais recente
+    const latestTemplateId = prismaBroadcast.templates && prismaBroadcast.templates.length > 0
+      ? prismaBroadcast.templates.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0].id
+      : undefined;
+
+    return new Broadcast({
+      id: prismaBroadcast.id,
+      name: prismaBroadcast.name,
+      description: prismaBroadcast.description || undefined,
+      status: prismaBroadcast.status,
+      channel: prismaBroadcast.channel || '',
+      templateId: latestTemplateId, // Usa o ID do template mais recente
+      createdAt: prismaBroadcast.createdAt,
+      updatedAt: prismaBroadcast.updatedAt,
+      deletedAt: prismaBroadcast.deletedAt,
+      startDate: prismaBroadcast.startDate,
+      timezone: prismaBroadcast.timezone,
+    });
   }
 }
