@@ -26,19 +26,26 @@ export class BroadcastController {
     try {
       const { name, description, contacts, channel, template } = req.body;
       
-      if (!name || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
+      if (!name) {
         return res.status(400).json({ 
-          error: 'Nome da campanha e lista de contatos são obrigatórios' 
+          error: 'Nome da campanha é obrigatório' 
         });
       }
       
-      // Validar cada contato
-      for (const contact of contacts) {
-        if (!contact.name || !contact.phone) {
-          return res.status(400).json({ 
-            error: 'Cada contato deve ter nome e telefone' 
-          });
+      // Validar cada contato se a lista de contatos for fornecida
+      if (contacts && Array.isArray(contacts)) {
+        for (const contact of contacts) {
+          if (!contact.name || !contact.phone) {
+            return res.status(400).json({ 
+              error: 'Cada contato deve ter nome e telefone' 
+            });
+          }
         }
+      } else if (contacts !== undefined && !Array.isArray(contacts)) {
+        // Se 'contacts' for fornecido mas não for um array
+        return res.status(400).json({
+          error: 'A lista de contatos, se fornecida, deve ser um array'
+        });
       }
       
       // Validar template se fornecido

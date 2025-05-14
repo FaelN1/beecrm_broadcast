@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { RequestHandler, Router } from 'express';
 import { ReportController } from '../controllers/ReportController';
 import { authMiddleware } from '../middlewares/authMiddleware';
 
@@ -6,7 +6,7 @@ const reportController = new ReportController();
 const reportRoutes = Router();
 
 // Todas as rotas de relatórios requerem autenticação
-reportRoutes.use(authMiddleware);
+reportRoutes.use(authMiddleware as RequestHandler);
 
 // Rota para gerar um novo relatório
 reportRoutes.post('/broadcasts/:broadcastId', reportController.generateReport.bind(reportController));

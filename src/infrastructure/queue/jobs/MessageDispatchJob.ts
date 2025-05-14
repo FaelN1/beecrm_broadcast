@@ -6,6 +6,8 @@ import { Job } from 'bullmq';
 import { Template } from '../../../domain/entities/Template';
 import { BroadcastRepository } from '../../database/repositories/BroadcastRepository';
 import { BroadcastStatus } from '../../../domain/valueObjects/BroadcastStatus';
+import { ContactStatus } from '../../../domain/valueObjects/ContactStatus'; // Novo import
+import { GenerateReportUseCase } from '../../../application/useCases/reports/GenerateReportUseCase'; // Novo import
 
 export class MessageDispatchJob {
   private messageService: MessageService;
@@ -74,13 +76,23 @@ export class MessageDispatchJob {
         }
       }
 
-      // Enviar a mensagem
-      const result = await this.messageService.send({
+      console.log(`Enviando: `, {
         content,
         recipient: data.recipient,
         recipientName: data.recipientName,
         broadcastId: data.broadcastId,
         contactId: data.contactId
+      })
+
+      // Garante que metadata sempre será enviado
+      const metadata = (data as any).metadata || {};
+      const result = await this.messageService.send({
+        content,
+        recipient: data.recipient,
+        recipientName: data.recipientName,
+        broadcastId: data.broadcastId,
+        contactId: data.contactId,
+        metadata // Garante envio correto do metadata
       });
 
       // Simular entrega após alguns segundos (apenas para fins de demonstração)
@@ -90,15 +102,77 @@ export class MessageDispatchJob {
         // Simular leitura após mais alguns segundos
         setTimeout(async () => {
           await this.messageService.simulateRead(data.contactId, data.broadcastId);
+          await this.checkCampaignCompletion(data.broadcastId); // Verificar conclusão após leitura
         }, Math.random() * 10000 + 5000); // Entre 5 e 15 segundos
         
       }, Math.random() * 3000 + 2000); // Entre 2 e 5 segundos
 
+      // Verificar conclusão também após o envio inicial (caso a simulação de delivered/read falhe ou demore)
+      // No entanto, a verificação mais robusta é após os status finais.
+      // Se a simulação for removida, a chamada abaixo seria mais crítica.
+      // await this.checkCampaignCompletion(data.broadcastId);
+
+
       return result;
     } catch (error) {
       console.error(`Erro ao processar mensagem para ${data.recipient}:`, error);
-      // Relança o erro para que o BullMQ possa lidar com a tentativa de reenvio
+      // Mesmo em caso de erro, o contato pode ter um status final (ex: FAILED)
+      // Portanto, verificar a conclusão da campanha aqui também pode ser válido
+      // dependendo de como o status do contato é atualizado em caso de falha no envio.
+      // Por ora, a verificação principal está após as simulações de status finais.
+      // Se o erro for antes da atualização de status do contato, a campanha não será finalizada por este job.
       throw error;
+    }
+  }
+
+  async checkCampaignCompletion(broadcastId: string): Promise<void> {
+    try {
+      const broadcast = await this.broadcastRepository.findById(broadcastId);
+      // Só prosseguir se a campanha ainda não estiver COMPLETED ou CANCELED
+      if (!broadcast || broadcast.status === BroadcastStatus.COMPLETED || broadcast.status === BroadcastStatus.CANCELED) {
+        return;
+      }
+
+      const pendingContactsCount = await prisma.broadcastContact.count({
+        where: {
+          broadcastId: broadcastId,
+          status: {
+            in: [ContactStatus.PENDING, ContactStatus.SENT], // Status que indicam não finalizado
+          },
+        },
+      });
+
+      console.log(`[MessageDispatchJob] Verificando conclusão da campanha ${broadcastId}. Contatos pendentes/enviados: ${pendingContactsCount}`);
+
+      if (pendingContactsCount === 0) {
+        // Verificar novamente o status da campanha para evitar race conditions
+        const currentBroadcast = await this.broadcastRepository.findById(broadcastId);
+        if (currentBroadcast && currentBroadcast.status !== BroadcastStatus.COMPLETED && currentBroadcast.status !== BroadcastStatus.CANCELED) {
+          await this.broadcastRepository.update({
+            ...currentBroadcast,
+            status: BroadcastStatus.COMPLETED,
+          });
+          console.log(`[MessageDispatchJob] Campanha ${broadcastId} marcada como COMPLETED.`);
+
+          // Disparar geração de relatório PDF summary
+          const generateReportUseCase = new GenerateReportUseCase(prisma);
+          console.log(`[MessageDispatchJob] Iniciando geração de relatório PDF para campanha ${broadcastId}.`);
+          
+          // Executar em segundo plano para não bloquear o job, mas logar erros.
+          generateReportUseCase.execute({
+            broadcastId: broadcastId,
+            type: 'summary',
+            format: 'pdf',
+            email: currentBroadcast.email, // Usar o email da campanha, se houver
+          }).then(reportInfo => {
+            console.log(`[MessageDispatchJob] Geração de relatório para ${broadcastId} concluída (ou iniciada e processando). ID do Relatório: ${reportInfo.id}`);
+          }).catch(reportError => {
+            console.error(`[MessageDispatchJob] Erro ao gerar relatório para campanha ${broadcastId}:`, reportError);
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`[MessageDispatchJob] Erro ao verificar conclusão da campanha ${broadcastId}:`, error);
     }
   }
 }

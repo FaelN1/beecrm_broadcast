@@ -23,36 +23,40 @@ export class CreateBroadcastUseCase {
       // Criar o broadcast
       const createdBroadcast = await this.broadcastRepository.create(broadcast);
       
-      // Para cada contato no DTO
-      const contactPromises = data.contacts.map(async (contactDto) => {
-        // Verificar se o contato já existe pelo telefone
-        let contact = await prisma.contact.findUnique({
-          where: { phone: contactDto.phone }
-        });
+      let contactsCount = 0;
+      // Para cada contato no DTO, se houver contatos
+      if (data.contacts && Array.isArray(data.contacts)) {
+        contactsCount = data.contacts.length;
+        const contactPromises = data.contacts.map(async (contactDto) => {
+          // Verificar se o contato já existe pelo telefone
+          let contact = await prisma.contact.findUnique({
+            where: { phone: contactDto.phone }
+          });
 
-        // Se não existir, criar um novo contato
-        if (!contact) {
-          contact = await prisma.contact.create({
+          // Se não existir, criar um novo contato
+          if (!contact) {
+            contact = await prisma.contact.create({
+              data: {
+                name: contactDto.name,
+                phone: contactDto.phone
+              }
+            });
+          }
+
+          // Criar relação entre broadcast e contato
+          await prisma.broadcastContact.create({
             data: {
-              name: contactDto.name,
-              phone: contactDto.phone
+              broadcastId: createdBroadcast.id!,
+              contactId: contact.id,
+              displayName: contactDto.displayName || contactDto.name,
+              status: 'pending'
             }
           });
-        }
-
-        // Criar relação entre broadcast e contato
-        await prisma.broadcastContact.create({
-          data: {
-            broadcastId: createdBroadcast.id!,
-            contactId: contact.id,
-            displayName: contactDto.displayName || contactDto.name,
-            status: 'pending'
-          }
         });
-      });
 
-      // Aguardar todas as operações de contato serem concluídas
-      await Promise.all(contactPromises);
+        // Aguardar todas as operações de contato serem concluídas
+        await Promise.all(contactPromises);
+      }
       
       // Criar template se fornecido
       let templateData: { id: string; name: string; content: string } | undefined = undefined;
@@ -78,7 +82,7 @@ export class CreateBroadcastUseCase {
         description: createdBroadcast.description,
         status: createdBroadcast.status,
         channel: createdBroadcast.channel,
-        contactsCount: data.contacts.length,
+        contactsCount: contactsCount, // Usar a contagem atualizada
         template: templateData,
         createdAt: createdBroadcast.createdAt!,
         updatedAt: createdBroadcast.updatedAt!

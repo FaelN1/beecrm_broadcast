@@ -70,6 +70,13 @@ export interface BulkSendMessagesDTO {
     status?: ContactStatus[];
     contactIds?: string[];
   };
+  // Adicionando metadados específicos do template para transmitir informações
+  metadata?: {
+    templateName?: string;
+    languageCode?: string;
+    templateVariables?: any;
+    [key: string]: any;
+  };
 }
 
 export interface BulkSendMessagesResponseDTO {

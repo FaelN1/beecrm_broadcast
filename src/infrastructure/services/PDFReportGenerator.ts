@@ -15,7 +15,7 @@ export class PDFReportGenerator {
     this.prisma = prisma;
   }
 
-  async generateBroadcastReport(broadcastId: string): Promise<{reportUrl: string, key: string}> {
+  async generateBroadcastReport(broadcastId: string): Promise<{ key: string }> {
     // Buscar dados da campanha
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id: broadcastId }
@@ -148,23 +148,12 @@ export class PDFReportGenerator {
     }
     const pdfBuffer = Buffer.concat(chunks);
     
-    const reportUrl = await this.storageProvider.uploadBuffer(
+    await this.storageProvider.uploadBuffer(
       pdfBuffer, 
       key, 
       'application/pdf'
     );
 
-    // Registrar o relatório no banco de dados
-    await this.prisma.report.create({
-      data: {
-        type: 'broadcast_summary',
-        format: 'pdf',
-        filePath: key,
-        status: 'completed',
-        broadcastId
-      }
-    });
-
-    return { reportUrl, key };
+    return { key };
   }
 }

@@ -37,7 +37,7 @@ export class EmailService {
           <p>O relatório da campanha <strong>${broadcastName}</strong> está disponível.</p>
           <p>Tipo de relatório: ${reportType}</p>
           <p>Você pode baixar o relatório clicando <a href="${reportUrl}" target="_blank">aqui</a>.</p>
-          <p>Este link expira em 1 hora.</p>
+          <p>Este link expira em 7 dias.</p>
           <p>Atenciosamente,<br>Equipe BeeCRM</p>
         `
       });

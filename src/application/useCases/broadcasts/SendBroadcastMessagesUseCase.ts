@@ -23,8 +23,9 @@ export class SendBroadcastMessagesUseCase {
     }
 
     // Verificar se o template existe, se for fornecido
+    let template = null;
     if (data.templateId) {
-      const template = await this.templateRepository.findById(data.templateId);
+      template = await this.templateRepository.findById(data.templateId);
       if (!template) {
         throw new Error('Template não encontrado');
       }
@@ -74,6 +75,15 @@ export class SendBroadcastMessagesUseCase {
       throw new Error('Fila de envio de mensagens não foi inicializada');
     }
 
+    // Preparar os metadados do template para envio
+    const metadata = {
+      messageType: 'template',
+      templateName: template?.name || data.metadata?.templateName || 'default_template',
+      languageCode: template?.language || data.metadata?.languageCode || 'pt_BR',
+      // Adicionar variáveis específicas do template
+      templateVariables: template?.variables || data.metadata?.templateVariables
+    };
+
     const jobPromises = broadcastContacts.map(async (bc) => {
       const jobData = {
         broadcastId: data.broadcastId,
@@ -85,7 +95,8 @@ export class SendBroadcastMessagesUseCase {
           ...data.variables,
           name: bc.displayName || bc.contact.name
         },
-        content: '' // Será definido no job com base no template
+        content: '', // Será definido no job com base no template
+        metadata: metadata // Passar os metadados do template
       };
 
       // Atualizar status do contato para 'pending'

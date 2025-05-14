@@ -60,13 +60,22 @@ export class MessageService {
       } else {
         // Enviar para o serviço externo
         try {
-          // Utilizar a API de templates para envio de mensagens
-          if (data.metadata?.messageType === 'template' || 
-              (!data.metadata?.messageType && !data.metadata?.mediaUrl)) {
+          // Determinar se deve usar a API de templates
+          const isTemplate = data.metadata?.messageType === 'template' || 
+                             (!data.metadata?.messageType && !data.metadata?.mediaUrl);
+
+          if (isTemplate) {
             // Usar a nova API de templates
-            const templatePayload = this.formatTemplateApiPayload(data);
             const channel = broadcast.channel || 'whatsapp';
             const templateEndpoint = `https://diogenes.beecrm.io/message/sendTemplate/${channel}`;
+            
+            // Preparar payload para a API de templates
+            const templatePayload = {
+              number: data.recipient,
+              name: data.metadata?.templateName || "hello_world",
+              language: data.metadata?.languageCode || "en_US",
+              components: this.buildTemplateComponents(data)
+            };
             
             console.log(`Enviando template para ${templateEndpoint}`);
             console.log(`Template payload: ${JSON.stringify(templatePayload, null, 2)}`);
@@ -74,7 +83,7 @@ export class MessageService {
             response = await axios.post(templateEndpoint, templatePayload, {
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': `${process.env.MESSAGE_API_TOKEN || 'default-token'}`
+                'Authorization': `Bearer ${process.env.MESSAGE_API_TOKEN || 'default-token'}`
               },
               timeout: 10000 // 10 segundos de timeout
             });
@@ -84,6 +93,7 @@ export class MessageService {
           } else {
             // Usar a API padrão para outros tipos de mensagem
             const payload = this.formatPayload(data);
+            
             console.log(`Enviando requisição para ${this.apiEndpoint}`);
             console.log(`Payload: ${JSON.stringify(payload, null, 2)}`);
             
@@ -182,6 +192,66 @@ export class MessageService {
       // Reduzir o delay para não atrasar tanto o processamento da fila
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
+  }
+  
+  /**
+   * Constrói os componentes para o payload da API de templates
+   */
+  private buildTemplateComponents(data: SendMessageDTO): Array<any> {
+    const components = [];
+    
+    // Componente de texto (corpo)
+    const bodyParams = [];
+    
+    // Adicionar nome do recipient como primeiro parâmetro se disponível
+    if (data.recipientName) {
+      bodyParams.push({
+        type: "text",
+        text: data.recipientName
+      });
+    }
+    
+    // Adicionar parâmetros de texto adicionais se disponíveis
+    if (data.metadata?.parameters?.text && Array.isArray(data.metadata.parameters.text)) {
+      bodyParams.push(...data.metadata.parameters.text);
+    }
+    
+    // Se não houver parâmetros especificados, usar o conteúdo como parâmetro
+    if (bodyParams.length === 0 && data.content) {
+      bodyParams.push({
+        type: "text",
+        text: data.content
+      });
+    }
+    
+    // Adicionar corpo se tiver parâmetros
+    if (bodyParams.length > 0) {
+      components.push({
+        type: "body",
+        parameters: bodyParams
+      });
+    }
+    
+    // Componente de botões
+    if (data.metadata?.parameters?.buttons && Array.isArray(data.metadata.parameters.buttons)) {
+      data.metadata.parameters.buttons.forEach((button, index) => {
+        if (button.sub_type === 'URL' || button.type === 'url') {
+          components.push({
+            type: "button",
+            sub_type: "URL",
+            index: `${index + 1}`,
+            parameters: [
+              {
+                type: "text",
+                text: button.text || button.url || ""
+              }
+            ]
+          });
+        }
+      });
+    }
+    
+    return components;
   }
   
   /**
@@ -456,106 +526,6 @@ export class MessageService {
         contactId: data.contactId,
         ...data.metadata
       }
-    };
-  }
-  
-  /**
-   * Formata o payload para a nova API de templates
-   */
-  private formatTemplateApiPayload(data: SendMessageDTO): any {
-    // Componentes padrão da mensagem de template
-    const components: Array<{
-      type: string;
-      sub_type?: string;
-      index?: string;
-      parameters: Array<{
-        type: string;
-        text: string;
-      }>;
-    }> = [];
-    
-    // Componente de texto (corpo)
-    const bodyParameters: Array<{
-      type: string;
-      text: string;
-    }> = [];
-    
-    // Verificar se há variáveis específicas do template
-    const templateVariables = data.metadata?.templateVariables || {};
-    
-    // Se temos variáveis numéricas (1, 2, 3...), processamos de forma ordenada
-    const numericVariables = Object.keys(templateVariables)
-      .filter(key => !isNaN(parseInt(key)))
-      .sort((a, b) => parseInt(a) - parseInt(b));
-    
-    // Adicionar variáveis numéricas na ordem correta
-    if (numericVariables.length > 0) {
-      numericVariables.forEach(varKey => {
-        const varDef = templateVariables[varKey];
-        // Usar o valor da variável ou o valor padrão/descrição
-        const varValue = data.variables?.[varKey] || 
-                         data.variables?.[`${varKey}`] || 
-                         varDef.defaultValue || 
-                         varDef.description || '';
-        
-        bodyParameters.push({
-          type: varDef.type || "text",
-          text: String(varValue)
-        });
-      });
-    } else {
-      // Se não tem variáveis numéricas, usar o comportamento anterior
-      // Adicionar nome do recipient como primeiro parâmetro se disponível
-      if (data.recipientName) {
-        bodyParameters.push({
-          type: "text",
-          text: data.recipientName
-        });
-      }
-      
-      // Adicionar parâmetros de texto adicionais se disponíveis
-      if (data.metadata?.parameters?.text && Array.isArray(data.metadata.parameters.text)) {
-        bodyParameters.push(...data.metadata.parameters.text);
-      }
-    }
-    
-    if (bodyParameters.length > 0) {
-      components.push({
-        type: "body",
-        parameters: bodyParameters
-      });
-    }
-    
-    // Componente de botões (mantém o comportamento existente)
-    if (data.metadata?.parameters?.buttons && Array.isArray(data.metadata.parameters.buttons)) {
-      // Iterar sobre os botões e adicionar cada um como um componente separado
-      data.metadata.parameters.buttons.forEach((button, index) => {
-        if (button.sub_type === 'URL' || button.type === 'url') {
-          components.push({
-            type: "button",
-            sub_type: "URL",
-            index: `${index + 1}`,
-            parameters: [
-              {
-                type: "text",
-                text: button.text || button.url || ""
-              }
-            ]
-          });
-        }
-      });
-    }
-    
-    // Usar nome do template fornecido, se disponível
-    const templateName = data.metadata?.templateName || "default_template";
-    // Usar o código de linguagem fornecido, se disponível, ou converter para minúsculas
-    const languageCode = data.metadata?.languageCode?.toLowerCase() || "pt_br";
-    
-    return {
-      number: data.recipient,
-      name: templateName,
-      language: languageCode,
-      components: components
     };
   }
   

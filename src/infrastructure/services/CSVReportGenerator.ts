@@ -14,7 +14,7 @@ export class CSVReportGenerator {
     this.prisma = prisma;
   }
 
-  async generateBroadcastContactsReport(broadcastId: string): Promise<{reportUrl: string, key: string}> {
+  async generateBroadcastContactsReport(broadcastId: string): Promise<{ key: string }> {
     // Buscar dados da campanha
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id: broadcastId }
@@ -72,7 +72,7 @@ export class CSVReportGenerator {
     const key = `reports/${broadcastId}/${timestamp}_contacts.csv`;
 
     // Fazer upload do CSV para o S3
-    const reportUrl = await this.storageProvider.uploadFile(
+    await this.storageProvider.uploadFile(
       tmpFilePath,
       key,
       'text/csv'
@@ -81,17 +81,6 @@ export class CSVReportGenerator {
     // Limpar o arquivo temporário
     fs.unlinkSync(tmpFilePath);
 
-    // Registrar o relatório no banco de dados
-    await this.prisma.report.create({
-      data: {
-        type: 'broadcast_contacts',
-        format: 'csv',
-        filePath: key,
-        status: 'completed',
-        broadcastId
-      }
-    });
-
-    return { reportUrl, key };
+    return { key };
   }
 }

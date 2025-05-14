@@ -26,6 +26,24 @@ export class MessageController {
       const broadcastRepository = new BroadcastRepository(prisma);
       const templateRepository = new TemplateRepository(prisma);
       
+      // Buscar dados do template para garantir que tenhamos todas as informações
+      let templateData = null;
+      if (templateId) {
+        templateData = await templateRepository.findById(templateId);
+        if (!templateData) {
+          return res.status(404).json({ error: 'Template não encontrado' });
+        }
+      } else {
+        // Se não foi especificado um templateId, buscar o template mais recente do broadcast
+        const templates = await templateRepository.findByBroadcastId(id);
+        if (templates.length > 0) {
+          // Pegar o template mais recente
+          templateData = templates.sort((a, b) => 
+            new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+          )[0];
+        }
+      }
+      
       const sendBroadcastUseCase = new SendBroadcastMessagesUseCase(
         broadcastRepository,
         templateRepository,
@@ -34,9 +52,15 @@ export class MessageController {
 
       const result = await sendBroadcastUseCase.execute({
         broadcastId: id,
-        templateId,
+        templateId: templateData?.id,
         variables,
-        filter
+        filter,
+        // Passar os metadados do template para uso no envio
+        metadata: templateData ? {
+          templateName: templateData.name,
+          templateVariables: templateData.variables,
+          languageCode: templateData.language || 'pt_BR'
+        } : undefined
       });
 
       return res.status(202).json({
