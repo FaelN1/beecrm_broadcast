@@ -23,6 +23,9 @@ export class BullQueueProvider {
     
     // Criar fila para geração de relatórios
     this.createQueue('report-generation');
+
+    // Criar fila para verificar campanhas agendadas
+    this.createQueue('scheduled-campaign-check');
   }
 
   /**

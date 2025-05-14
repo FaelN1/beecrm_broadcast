@@ -17,14 +17,22 @@ model Broadcast {
   id          String              @id @default(uuid())
   name        String
   description String?
-  status      String
+  status      String              @default("draft") // draft, scheduled, in_progress, paused, completed, canceled, failed
   channel     String?             // Identificação do canal do cliente (ex: 1-beecrm.io)
   email       String?             // Email para envio automático de relatórios
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
-  // messages    Message[]
+  deletedAt   DateTime?           // Para soft delete
   contacts    BroadcastContact[]
   templates   Template[]          // Nova relação com Template
+
+  // Campos para campanha agendada
+  startDate   DateTime?           // Armazenado em UTC
+  timezone    String?             // Timezone original da startDate (ex: America/Sao_Paulo)
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([startDate])
 }
 
 model Contact {

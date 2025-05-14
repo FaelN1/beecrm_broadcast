@@ -33,7 +33,7 @@ export class TemplateRepository implements ITemplateRepository {
 
     if (!data) return null;
 
-    return {
+    return new Template({
       id: data.id,
       name: data.name,
       content: data.content,
@@ -41,7 +41,7 @@ export class TemplateRepository implements ITemplateRepository {
       broadcastId: data.broadcastId,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt
-    };
+    });
   }
 
   async findByBroadcastId(broadcastId: string): Promise<Template[]> {
@@ -49,7 +49,7 @@ export class TemplateRepository implements ITemplateRepository {
       where: { broadcastId }
     });
 
-    return templates.map(data => ({
+    return templates.map(data => new Template({
       id: data.id,
       name: data.name,
       content: data.content,
@@ -66,11 +66,11 @@ export class TemplateRepository implements ITemplateRepository {
       data: {
         name: template.name,
         content: template.content,
-        variables: template.variables ? JSON.stringify(template.variables) : null,
+        variables: template.variables ? JSON.stringify(template.variables) : undefined,
       }
     });
 
-    return {
+    return new Template({
       id: data.id,
       name: data.name,
       content: data.content,
@@ -78,7 +78,7 @@ export class TemplateRepository implements ITemplateRepository {
       broadcastId: data.broadcastId,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt
-    };
+    });
   }
 
   async delete(id: string): Promise<void> {

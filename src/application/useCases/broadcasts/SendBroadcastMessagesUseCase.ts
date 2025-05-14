@@ -6,6 +6,7 @@ import { ContactStatus } from '../../../domain/valueObjects/ContactStatus';
 import { BulkSendMessagesDTO, BulkSendMessagesResponseDTO } from '../../dtos/MessageDTO';
 import { BullQueueProvider } from '../../../infrastructure/queue/BullQueueProvider';
 import { prisma } from '../../../infrastructure/database/prisma/PrismaRepository';
+import { notificationService } from '../../../index'; // Importar o NotificationService
 
 export class SendBroadcastMessagesUseCase {
   constructor(
@@ -32,10 +33,13 @@ export class SendBroadcastMessagesUseCase {
     }
 
     // Atualizar o status da campanha para em progresso
-    await this.broadcastRepository.update({
+    const updatedBroadcast = await this.broadcastRepository.update({
       ...broadcast,
       status: BroadcastStatus.IN_PROGRESS
     });
+
+    // Notificar o início da campanha
+    notificationService.updateBroadcastStatus(updatedBroadcast.id!, updatedBroadcast.status, { name: updatedBroadcast.name });
 
     // Buscar os contatos que serão destinatários das mensagens
     const contactsQuery: {
