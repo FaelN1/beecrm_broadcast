@@ -14,6 +14,7 @@ export default defineConfig([
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "off",
       "no-useless-catch": "off",
+      "@typescript-eslint/no-unsafe-function-type": "off"
     },
   },
 ]);
