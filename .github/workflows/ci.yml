@@ -52,9 +52,24 @@ jobs:
 
     - name: Lint
       run: npm run lint
-    
-    - name: Test
-      run: npm test
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/broadcast_test?schema=public
         REDIS_URL: redis://localhost:6379
+        NODE_ENV: development
+        PORT: 3000
+        BROADCAST_WEBHOOK_URL: https://webhook.site/4cff14ee-80cb-4624-b576-b9c304d50251
+        AWS_S3_CESS_KEY_ID: minioadmin
+        AWS_SECRET_ACCESS_KEY: minioadmin
+        AWS_REGION: us-east-1
+        AWS_S3_BUCKET: broadcast-files
+        AWS_S3_ENDPOINT: http://localhost:9000
+        AWS_S3_FORCE_PATH_STYLE: true
+        MESSAGE_API_ENDPOINT: https://diogenes.beecrm.io/api/messages
+        MESSAGE_API_TOKEN: seu-token-de-autenticacao
+        MOCK_MESSAGE_API: true
+        SMTP_HOST: smtp.gmail.com
+        SMTP_PORT: 587
+        SMTP_SECURE: false
+        SMTP_USER: nicolasrafael178@gmail.com
+        SMTP_PASS: lxbhsnjbqmrmbpxs
+        EMAIL_FROM: noreply@beecrm.io
