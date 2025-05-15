@@ -79,7 +79,6 @@ export class CreateBroadcastUseCase {
     return this.prismaClient.$transaction(async (prismaTx) => {
       const createdBroadcast = await this.broadcastRepository.create(broadcastEntity);
       
-<<<<<<< HEAD
       let contactsCount = 0;
       // Para cada contato no DTO, se houver contatos
       if (data.contacts && Array.isArray(data.contacts)) {
@@ -102,15 +101,6 @@ export class CreateBroadcastUseCase {
 
           // Criar relação entre broadcast e contato
           await prisma.broadcastContact.create({
-=======
-      const contactPromises = data.contacts.map(async (contactDto) => {
-        let contact = await prismaTx.contact.findUnique({
-          where: { phone: contactDto.phone }
-        });
-
-        if (!contact) {
-          contact = await prismaTx.contact.create({
->>>>>>> 7021de7ef97487428450ec40f540a4f02e0feebf
             data: {
               broadcastId: createdBroadcast.id!,
               contactId: contact.id,
@@ -118,27 +108,11 @@ export class CreateBroadcastUseCase {
               status: 'pending'
             }
           });
-<<<<<<< HEAD
-=======
-        }
-
-        await prismaTx.broadcastContact.create({
-          data: {
-            broadcastId: createdBroadcast.id!,
-            contactId: contact.id,
-            displayName: contactDto.displayName || contactDto.name,
-            status: 'pending' 
-          }
->>>>>>> 7021de7ef97487428450ec40f540a4f02e0feebf
         });
 
-<<<<<<< HEAD
         // Aguardar todas as operações de contato serem concluídas
         await Promise.all(contactPromises);
       }
-=======
-      await Promise.all(contactPromises);
->>>>>>> 7021de7ef97487428450ec40f540a4f02e0feebf
       
       let templateData: { id: string; name: string; content: string } | undefined = undefined;
       if (data.template) {
